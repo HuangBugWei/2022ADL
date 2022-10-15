@@ -42,14 +42,23 @@ class SeqClsDataset(Dataset):
         x = []
         y = []
         z = []
-        for sample in samples:
-            x.append(sample['text'])
-            y.append(self.label2idx(sample['intent']))
-            z.append(sample['id'])
-        
-        x = self.vocab.encode_batch([sentence.split() for sentence in x])
-        
-        return x, y, z
+        if 'intent' in samples[0].keys():
+            for sample in samples:
+                x.append(sample['text'])
+                y.append(self.label2idx(sample['intent']))
+                z.append(sample['id'])
+            
+            x = self.vocab.encode_batch([sentence.split() for sentence in x])
+            
+            return x, y, z
+        else:
+            for sample in samples:
+                x.append(sample['text'])
+                z.append(sample['id'])
+            
+            x = self.vocab.encode_batch([sentence.split() for sentence in x])
+            
+            return x, z
 
     def label2idx(self, label: str):
         return self.label_mapping[label]

@@ -33,20 +33,20 @@ def main(args):
     data_paths = {split: args.data_dir / f"{split}.json" for split in SPLITS}
     data = {split: json.loads(path.read_text()) for split, path in data_paths.items()}
     datasets: Dict[str, SeqClsDataset] = {
-        split: SeqClsDataset(split_data, vocab, intent2idx, args.max_len, (split == "train" or split == "eval"))
+        split: SeqClsDataset(split_data, vocab, intent2idx, args.max_len)
         for split, split_data in data.items()
     }
     # datasets = {TRAIN: SeqClsDataset, DEV: SeqClsDataset}
     # TODO: crecate DataLoader for train / dev datasets
-    train_dataloader = DataLoader(datasets["train"], batch_size=args.batch_size, shuffle=True)
+    train_dataloader = DataLoader(datasets["train"], batch_size=args.batch_size, shuffle=True, collate_fn=datasets["train"].collate_fn)
 
     # train_dataloader = DataLoader(datasets["train"], batch_size=2, shuffle=True)
     # x, y = next(iter(train_dataloader))
     # x = list(x) # tuple to list
     # x = vocab.encode_batch([sentence.split() for sentence in x])
     
-    eval_dataloader = DataLoader(datasets["eval"], batch_size=args.batch_size, shuffle=False)
-    test_dataloader = DataLoader(datasets["test"], batch_size=args.batch_size, shuffle=False)
+    eval_dataloader = DataLoader(datasets["eval"], batch_size=args.batch_size, shuffle=False, collate_fn=datasets["eval"].collate_fn)
+    test_dataloader = DataLoader(datasets["test"], batch_size=args.batch_size, shuffle=False, collate_fn=datasets["test"].collate_fn)
     
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
     
@@ -65,23 +65,18 @@ def main(args):
 
     epoch_pbar = trange(args.num_epoch, desc="Epoch")
     for epoch in epoch_pbar:
-        best_eval_loss = 5000
+        best_eval_acc = 0
         # TODO: Training loop - iterate over train dataloader and update model weights
         model.train()
         loss_train = 0
         acc_train = 0
-        for step, (x, y) in enumerate(train_dataloader):
-            x = list(x) # tuple to list
-            x = vocab.encode_batch([sentence.split() for sentence in x])
+        for step, (x, y, _) in enumerate(train_dataloader):
+
             x = torch.tensor(x).to(args.device)
-            
             y = torch.tensor(y).to(args.device)
-            # y = torch.tensor(y).to(args.device).to(float).requires_grad_()
-            # y = torch.nn.functional.one_hot(y, num_classes= num_class).to(float).requires_grad_()
-            output = model(x)
             
+            output = model(x)            
             loss = criterion(output, y)
-            
             loss.backward()
             optimizer.step()
             optimizer.zero_grad()
@@ -99,15 +94,11 @@ def main(args):
         with torch.no_grad():
             loss_eval = 0
             acc_eval = 0
-            for step, (x, y) in enumerate(eval_dataloader):
+            for step, (x, y, _) in enumerate(eval_dataloader):
 
-                x = list(x) # tuple to list
-                x = vocab.encode_batch([sentence.split() for sentence in x])
-                x = torch.tensor(x).to(args.device)
-                
+                x = torch.tensor(x).to(args.device)                
                 y = torch.tensor(y).to(args.device)
-                # y = torch.tensor(y).to(args.device).to(float).requires_grad_()
-                # y = torch.nn.functional.one_hot(y, num_classes= num_class).to(float).requires_grad_()
+                
                 output = model(x)
                 
                 loss = criterion(output, y)
@@ -120,24 +111,27 @@ def main(args):
             print(f"loss_eval: {loss_eval}; acc_eval: {acc_eval}")
 
 		# save model
-        if loss_eval < best_eval_loss:
-            best_eval_loss = loss_eval
+        if acc_eval >= best_eval_acc:
+            best_eval_acc = acc_eval
             
-            torch.save(model.state_dict(), os.path.join(args.ckpt_dir, "model.pt"))
-		
+            torch.save(model.state_dict(), 
+                        os.path.join(args.ckpt_dir, 
+                                    f"{args.hidden_size}-{args.num_layers}-\
+                                    {args.dropout}-{args.bidirectional}- \
+                                    {args.lr}-{args.batch_size}-{args.num_epoch}-model.pt"))
     # TODO: Inference on test set
 
 	# Inference on test set
 	# first load-in best model
 
-    model.load_state_dict(torch.load(os.path.join(args.ckpt_dir, "model.pt")))
+    # model.load_state_dict(torch.load(os.path.join(args.ckpt_dir, "model.pt")))
+    
     model.eval()
     with torch.no_grad():
         ansList = [['id', 'intent']]
 
         for step, (x, id) in enumerate(test_dataloader):
-            x = list(x) # tuple to list
-            x = vocab.encode_batch([sentence.split() for sentence in x])
+            
             x = torch.tensor(x).to(args.device)
             
             output = model(x)
@@ -146,8 +140,10 @@ def main(args):
 
             for (i, label) in zip(id, output):
                 ansList.append([i, datasets['test'].idx2label(label.item())])
-    
-    with open('intent-ans.csv', 'w', newline='') as f:
+    fileanme = f"{args.hidden_size}-{args.num_layers}-\
+                                    {args.dropout}-{args.bidirectional}- \
+                                    {args.lr}-{args.batch_size}-{args.num_epoch}-intent-ans.csv"
+    with open(fileanme, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerows(ansList)
                 
@@ -179,12 +175,12 @@ def parse_args() -> Namespace:
 
     # model
     parser.add_argument("--hidden_size", type=int, default=512)
-    parser.add_argument("--num_layers", type=int, default=10)
+    parser.add_argument("--num_layers", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.15)
     parser.add_argument("--bidirectional", type=bool, default=True)
 
     # optimizer
-    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--lr", type=float, default=5e-3)
 
     # data loader
     parser.add_argument("--batch_size", type=int, default=512)
@@ -193,7 +189,7 @@ def parse_args() -> Namespace:
     parser.add_argument(
         "--device", type=torch.device, help="cpu, cuda, cuda:0, cuda:1", default="cuda"
     )
-    parser.add_argument("--num_epoch", type=int, default=1000)
+    parser.add_argument("--num_epoch", type=int, default=5)
 
     args = parser.parse_args()
     return args
