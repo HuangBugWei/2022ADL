@@ -10,6 +10,8 @@ from tqdm import trange
 from dataset import SeqClsDataset
 from utils import Vocab
 
+from torch.utils.data import DataLoader
+
 TRAIN = "train"
 DEV = "eval"
 SPLITS = [TRAIN, DEV]
@@ -28,7 +30,10 @@ def main(args):
         split: SeqClsDataset(split_data, vocab, intent2idx, args.max_len)
         for split, split_data in data.items()
     }
+    # datasets = {TRAIN: SeqClsDataset, DEV: SeqClsDataset}
     # TODO: crecate DataLoader for train / dev datasets
+    train_dataloader = DataLoader(datasets["train"], batch_size=args.batch_size, shuffle=True)
+    eval_dataloader = DataLoader(datasets["eval"], batch_size=args.batch_size, shuffle=False)
 
     embeddings = torch.load(args.cache_dir / "embeddings.pt")
     # TODO: init model and move model to target device(cpu / gpu)

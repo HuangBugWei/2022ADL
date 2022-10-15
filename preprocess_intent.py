@@ -24,6 +24,9 @@ def build_vocab(
     words: Counter, vocab_size: int, output_dir: Path, glove_path: Path
 ) -> None:
     common_words = {w for w, _ in words.most_common(vocab_size)}
+    # words.most_common(vocab_size) will return [("words": num), ("words": num), ...]
+    # common_words: set()
+    # common_words = {"words", "words", ...}
     vocab = Vocab(common_words)
     vocab_path = output_dir / "vocab.pkl"
     with open(vocab_path, "wb") as f:
@@ -36,8 +39,10 @@ def build_vocab(
         row1 = fp.readline()
         # if the first row is not header
         if not re.match("^[0-9]+ [0-9]+$", row1):
+        # https://docs.python.org/zh-tw/3/library/re.html
             # seek to 0
             fp.seek(0)
+            # return first line i guess
         # otherwise ignore the header
 
         for i, line in tqdm(enumerate(fp)):
@@ -51,6 +56,7 @@ def build_vocab(
             glove[word] = vector
             glove_dim = len(vector)
 
+    # v is list of float
     assert all(len(v) == glove_dim for v in glove.values())
     assert len(glove) <= vocab_size
 
@@ -62,6 +68,9 @@ def build_vocab(
         glove.get(token, [random() * 2 - 1 for _ in range(glove_dim)])
         for token in vocab.tokens
     ]
+    # https://www.runoob.com/python/att-dictionary-get.html
+    # so this can map an word not in globe to an random vector
+
     embeddings = torch.tensor(embeddings)
     embedding_path = output_dir / "embeddings.pt"
     torch.save(embeddings, str(embedding_path))
@@ -77,19 +86,29 @@ def main(args):
     for split in ["train", "eval"]:
         dataset_path = args.data_dir / f"{split}.json"
         dataset = json.loads(dataset_path.read_text())
+        # dataset: list[dict{"text": xxx, "intent": xxx, "id": train-xxx}]
         logging.info(f"Dataset loaded at {str(dataset_path.resolve())}")
 
         intents.update({instance["intent"] for instance in dataset})
+        # instance is dict{}
+        # intents.update({"mess"}) -> intents: {"mess"}
+        # intents.update("mess") -> intents: {"e", "s", "m"}
+
         words.update(
             [token for instance in dataset for token in instance["text"].split()]
         )
+        # words: Counter({"my": 2, "what": 1, "is": 1, "current": 1, ...})
+        # get all exist words in data set
 
     intent2idx = {tag: i for i, tag in enumerate(intents)}
+    # intent2idx: dict{}
     intent_tag_path = args.output_dir / "intent2idx.json"
+    # intent_tag_path: pathlib.PosixPath
     intent_tag_path.write_text(json.dumps(intent2idx, indent=2))
     logging.info(f"Intent 2 index saved at {str(intent_tag_path.resolve())}")
 
     build_vocab(words, args.vocab_size, args.output_dir, args.glove_path)
+    # build_vocab(words, int(10_000), )
 
 
 def parse_args() -> Namespace:
